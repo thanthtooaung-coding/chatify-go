@@ -51,13 +51,11 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Received message from user %s (%s) at %s: %s\n", message.Username, message.UserID, message.Timestamp, message.Content)
 
 		for client := range clients {
-			if client != ws {
-				err := client.WriteMessage(websocket.TextMessage, msg)
-				if err != nil {
-					fmt.Printf("Failed to write message to client: %v\n", err)
-					client.Close()
-					delete(clients, client)
-				}
+			err := client.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
+				fmt.Printf("Failed to write message to client: %v\n", err)
+				client.Close()
+				delete(clients, client)
 			}
 		}
 	}
