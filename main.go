@@ -77,7 +77,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Client connected")
 	broadcastActiveUsers()
 
-	ws.SetReadLimit(512)
 	ws.SetCloseHandler(func(code int, text string) error {
 		fmt.Println("Client disconnected with code:", code)
 		clientsMu.Lock()
