@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rabbitmq/amqp091-go"
@@ -21,6 +22,9 @@ var (
 	rabbitMQ  *amqp091.Connection
 	rabbitCh  *amqp091.Channel
 )
+
+var messageQueue []Message
+var queueMu sync.Mutex
 
 type Message struct {
 	UserID    string `json:"userID"`
@@ -102,6 +106,16 @@ func consumeMessages() {
 
 	go func() {
 		for d := range msgs {
+
+			var message Message
+			err := json.Unmarshal(d.Body, &message)
+			if err != nil {
+				log.Printf("Error unmarshalling message: %v", err)
+				continue
+			}
+
+			addMessageToQueue(message)
+
 			broadcastMessage(d.Body)
 		}
 	}()
@@ -168,6 +182,8 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Client connected")
 	broadcastActiveUsers()
 
+	sendLastMessages(ws)
+
 	ws.SetCloseHandler(func(code int, text string) error {
 		fmt.Println("Client disconnected with code:", code)
 		clientsMu.Lock()
@@ -200,10 +216,66 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func addMessageToQueue(message Message) {
+	queueMu.Lock()
+	defer queueMu.Unlock()
+
+	if len(messageQueue) >= 20 {
+		messageQueue = messageQueue[1:]
+	}
+
+	messageQueue = append(messageQueue, message)
+}
+
+func sendLastMessages(ws *websocket.Conn) {
+	queueMu.Lock()
+	defer queueMu.Unlock()
+
+	for _, message := range messageQueue {
+		messageJSON, err := json.Marshal(message)
+		if err != nil {
+			fmt.Printf("Error marshaling message: %v\n", err)
+			continue
+		}
+
+		err = ws.WriteMessage(websocket.TextMessage, messageJSON)
+		if err != nil {
+			fmt.Printf("Error sending message to client: %v\n", err)
+			break
+		}
+	}
+}
+
+func cleanupOldMessages() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		currentTime := time.Now()
+		queueMu.Lock()
+		var updatedQueue []Message
+		for _, message := range messageQueue {
+			messageTime, err := time.Parse(time.RFC3339, message.Timestamp)
+			if err != nil {
+				fmt.Printf("Failed to parse timestamp: %v\n", err)
+				continue
+			}
+			// Keep messages within the last 1 hour
+			if currentTime.Sub(messageTime) <= time.Hour {
+				updatedQueue = append(updatedQueue, message)
+			}
+		}
+		messageQueue = updatedQueue
+		queueMu.Unlock()
+	}
+}
+
 func main() {
 	initRabbitMQ()
 	defer rabbitMQ.Close()
 	defer rabbitCh.Close()
+
+	go cleanupOldMessages()
 
 	consumeMessages()
 
