@@ -19,6 +19,7 @@ type Message struct {
 	UserID    string `json:"userID"`
 	Username  string `json:"username"`
 	Content   string `json:"content"`
+	Image     string `json:"image"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -49,6 +50,9 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		}
 
 		fmt.Printf("Received message from user %s (%s) at %s: %s\n", message.Username, message.UserID, message.Timestamp, message.Content)
+		if message.Image != "" {
+			fmt.Println("Message contains an image")
+		}
 
 		for client := range clients {
 			err := client.WriteMessage(websocket.TextMessage, msg)
